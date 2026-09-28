@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Streaming upload — try it</title>
+    <style>
+        :root {
+            --bg: #ffffff;
+            --fg: #16181d;
+            --muted: #5c6370;
+            --line: #e3e6ea;
+            --accent: #2f6feb;
+            --ok: #1a7f4b;
+            --bad: #b3261e;
+            --panel: #f7f8fa;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #16181d;
+                --fg: #e8eaed;
+                --muted: #9aa0aa;
+                --line: #2c3038;
+                --accent: #6f9dff;
+                --ok: #57c98a;
+                --bad: #ff8a80;
+                --panel: #1d2027;
+            }
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0 auto;
+            max-width: 46rem;
+            padding: 3rem 1rem 4rem;
+            background: var(--bg);
+            color: var(--fg);
+            font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        }
+        h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+        p.lede { color: var(--muted); margin: 0 0 2rem; }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 1.25rem;
+        }
+        label { display: block; font-weight: 600; margin-bottom: .5rem; }
+        input[type=file] { width: 100%; }
+        button {
+            margin-top: 1rem;
+            padding: .6rem 1.1rem;
+            font: inherit;
+            font-weight: 600;
+            color: #fff;
+            background: var(--accent);
+            border: 0;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        button[disabled] { opacity: .5; cursor: default; }
+        progress { width: 100%; height: .6rem; margin-top: 1rem; display: none; }
+        dl { display: grid; grid-template-columns: auto 1fr; gap: .35rem 1rem; margin: 1.25rem 0 0; }
+        dt { color: var(--muted); }
+        dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+        .status { margin-top: 1rem; font-weight: 600; }
+        .status.ok { color: var(--ok); }
+        .status.bad { color: var(--bad); }
+        pre {
+            margin: 1rem 0 0;
+            padding: .75rem;
+            background: var(--bg);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            overflow: auto;
+            font-size: .85rem;
+        }
+        code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    </style>
+</head>
+<body>
+<h1>Streaming upload</h1>
+<p class="lede">
+    Pick a file — the bigger the better. The server writes it to disk as the bytes arrive, so the
+    limit is your connection and your disk, not the server's heap. The progress bar tracks bytes
+    actually sent, and the digest below is computed by the server during the same single pass.
+</p>
+
+<div class="panel">
+    <label for="file">File to upload</label>
+    <input type="file" id="file">
+    <button id="send" disabled>Upload</button>
+    <progress id="progress" max="100" value="0"></progress>
+    <div id="status" class="status"></div>
+    <div id="result"></div>
+</div>
+
+<script>
+    const fileInput = document.getElementById('file');
+    const sendButton = document.getElementById('send');
+    const progress = document.getElementById('progress');
+    const status = document.getElementById('status');
+    const result = document.getElementById('result');
+
+    fileInput.addEventListener('change', () => {
+        sendButton.disabled = !fileInput.files.length;
+        status.textContent = '';
+        status.className = 'status';
+        result.innerHTML = '';
+    });
+
+    sendButton.addEventListener('click', () => {
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        const form = new FormData();
+        // The metadata field must come first: the server handles parts in order and needs it
+        // before it starts streaming the file. Sent as a plain field, not a file.
+        form.append('metadata', JSON.stringify({
+            filename: file.name,
+            contentType: file.type || 'application/octet-stream'
+        }));
+        form.append('file', file);
+
+        const started = performance.now();
+        setBusy(true);
+
+        const request = new XMLHttpRequest();
+        request.open('POST', '/api/upload');
+
+        request.upload.addEventListener('progress', event => {
+            if (event.lengthComputable) {
+                progress.value = Math.round((event.loaded / event.total) * 100);
+            }
+        });
+
+        request.addEventListener('load', () => {
+            setBusy(false);
+            const elapsed = ((performance.now() - started) / 1000).toFixed(2);
+            let payload = null;
+            try { payload = JSON.parse(request.responseText); } catch (ignored) { /* not JSON */ }
+
+            if (request.status >= 200 && request.status < 300 && payload) {
+                status.textContent = `Stored in ${elapsed}s (server reported ${payload.elapsedMillis} ms)`;
+                status.className = 'status ok';
+                result.innerHTML = `
+                    <dl>
+                        <dt>id</dt><dd>${escapeHtml(payload.id)}</dd>
+                        <dt>size</dt><dd>${payload.size.toLocaleString()} bytes</dd>
+                        <dt>sha256</dt><dd>${escapeHtml(payload.sha256)}</dd>
+                    </dl>`;
+            } else {
+                status.textContent = `Upload failed: HTTP ${request.status}`;
+                status.className = 'status bad';
+                result.innerHTML = `<pre>${escapeHtml(request.responseText || 'no response body')}</pre>`;
+            }
+        });
+
+        request.addEventListener('error', () => {
+            setBusy(false);
+            status.textContent = 'Connection failed — if the file is larger than the server\'s limit, ' +
+                'expect the connection to drop before the error body arrives.';
+            status.className = 'status bad';
+        });
+
+        request.send(form);
+    });
+
+    function setBusy(busy) {
+        sendButton.disabled = busy;
+        progress.style.display = busy ? 'block' : 'none';
+        if (busy) {
+            progress.value = 0;
+            status.textContent = 'Uploading…';
+            status.className = 'status';
+        }
+    }
+
+    function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, character => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[character]);
+    }
+</script>
+</body>
+</html>

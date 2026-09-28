@@ -1,0 +1,9 @@
+# Normalise line endings so the build works on every platform.
+#
+# The Maven wrapper is the one that really matters: mvnw is a shell script, and a CRLF shebang
+# makes it fail on Linux/macOS with "bad interpreter". mvnw.cmd is the opposite case - it is a
+# Windows batch file, which needs CRLF.
+* text=auto
+mvnw text eol=lf
+mvnw.cmd text eol=crlf
+*.jar binary

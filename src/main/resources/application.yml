@@ -1,0 +1,36 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: huge-upload
+  webflux:
+    multipart:
+      # --- @RequestPart path only ---------------------------------------------------------
+      # Threshold at which a part stops being held in memory and is spilled to a temp file.
+      # This is the setting that makes a @RequestPart FilePart a temp-file-backed MultipartFile.
+      max-in-memory-size: 256KB
+      max-headers-size: 10KB
+      max-parts: 8
+      # --- Streaming path -----------------------------------------------------------------
+      # This one applies to PartEventHttpMessageReader too, as the ceiling for a single part,
+      # and it is enforced while the bytes are still arriving.
+      # Kept deliberately ABOVE upload.max-bytes so that our own limit trips first and the caller
+      # gets a useful problem detail instead of a generic framework rejection.
+      max-disk-usage-per-part: 6GB
+
+upload:
+  # Where uploaded bytes are written. Note that a *.part file appears here while a transfer is in
+  # flight and is renamed into place only once it completes.
+  storage-root: ${java.io.tmpdir}/huge-upload/storage
+  # Our own ceiling; enforced mid-stream, before the whole file has been received.
+  max-bytes: 5GB
+  # The metadata form field is expected to be tiny and is bounded accordingly.
+  max-metadata-bytes: 64KB
+  # Demonstrates what @RequestPart / join() / block() actually do. Set to false to remove
+  # /api/legacy/** entirely. Never enable these in a real deployment - they can take the app down.
+  legacy-endpoints-enabled: true
+
+logging:
+  level:
+    dev.denis.hugeupload: INFO

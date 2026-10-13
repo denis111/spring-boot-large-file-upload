@@ -250,16 +250,15 @@ Also worth knowing if you're on Boot 4: `spring.codec.max-in-memory-size` no lon
 
 ---
 
-## What's Next (Part 2)
+## What's Next
 
-Part 2 takes the stream we just built and puts a real pipeline behind it:
+Next comes the servlet-stack version of everything above — `request.getInputStream()`, keeping the multipart resolver away from your upload, bounded buffers, and the thread-pool policy that stops a fast client from exhausting a slow disk. If you're on Spring MVC and you've been reading this thinking "none of this applies to my application", that one's for you: you don't have to move to WebFlux to stop buffering uploads.
+
+After that, the pipeline those uploads feed into:
 
 - **Storage**: streaming the same bytes to S3 via multipart upload, still without buffering — using `AsyncRequestBody.fromPublisher()` rather than dropping back to an `InputStream` bridge
 - **Type detection**: reading ~500 bytes instead of the whole file to decide whether you accept it at all, and why running Apache Tika as an embedded library is a liability against hostile input (and how `tika-server` fixes it)
 - **Antivirus**: bounding ClamAV scans so a 100GB upload can't choke the scanner, and what to do about the files that are too big to scan in full
-- **The servlet stack**: the same guarantees without WebFlux — `request.getInputStream()`, keeping the multipart resolver away from your upload, bounded buffers, and the thread-pool policy that stops a fast client from exhausting a slow disk
-
-If you're on Spring MVC and you've been reading this thinking "none of this applies to my application" — that last one is for you. You don't have to move to WebFlux to stop buffering uploads, and Part 2 shows the version you can drop into the codebase you already have.
 
 ---
 

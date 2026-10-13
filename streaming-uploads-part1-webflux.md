@@ -273,4 +273,4 @@ The full source code, including the tests that pin every claim in this post, is 
 
 ---
 
-*Found this useful? Follow for Part 2: streaming storage to S3, tika-server, bounded antivirus scanning — and the same pattern implemented on the servlet stack, for those who can't move to WebFlux.*
+*Found this useful? Next up: the same pattern implemented on the servlet stack, for those who can't move to WebFlux — followed by streaming storage to S3, tika-server, and bounded antivirus scanning.*

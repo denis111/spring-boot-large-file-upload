@@ -3,6 +3,9 @@
 Companion code for the article **[Streaming Large File Uploads in Java Without Killing Your Server —
 Part 1](https://denis111.hashnode.dev/streaming-large-file-uploads)**.
 
+**Following along?** Part 2 — the servlet-stack version — is next.
+[Subscribe](https://denis111.kit.com/under-load) to get it in your inbox.
+
 It is one Spring Boot WebFlux application that accepts an upload and writes it to disk *as the bytes
 arrive*, plus a set of deliberately-broken endpoints that reproduce the ways this normally goes wrong.
 Every claim in the article is checked by a test in this repository.

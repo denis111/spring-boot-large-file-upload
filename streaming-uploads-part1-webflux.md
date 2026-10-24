@@ -85,20 +85,20 @@ What that means for each signature you might reach for:
 | Signature | What actually happens |
 |---|---|
 | `@RequestPart("file") MultipartFile` | Servlet stack: whole body buffered before your handler runs |
-| `@RequestPart("file") FilePart` | WebFlux: whole part buffered in memory, then spilled to a temp file, before your handler runs |
+| `@RequestPart("file") FilePart` | WebFlux: held in memory up to `max-in-memory-size` (256KB), then written to a temp file — all before your handler runs |
 | `@RequestPart("file") Flux<DataBuffer>` | WebFlux: joined into **one** buffer, capped by `max-in-memory-size` (256KB by default) |
 | `@RequestBody Flux<PartEvent>` | **Actually streams** |
 
 Three of those four deserve a closer look, because each fails in a different way.
 
-**`FilePart` is a temp-file-backed `MultipartFile`.** This is the one that catches people, because `FilePart` looks like the modern, reactive answer. It isn't: by the time your handler is called, the part has been fully received and written to a `.multipart` temp file on disk. Spring Boot's own configuration reference admits it, describing the temp-file setting as *"Directory used to store file parts larger than `maxInMemorySize`. **Ignored when using the PartEvent streaming support**"* — a setting that exists only because `@RequestPart` writes parts to disk before you see them.
+**`FilePart` is a temp-file-backed `MultipartFile`.** This is the one that catches people, because `FilePart` looks like the modern, reactive answer. It isn't: by the time your handler is called, the part has been fully received — held in memory if it is under `maxInMemorySize`, otherwise written to a `.multipart` temp file on disk. Spring Boot's own configuration reference admits it, describing the temp-file setting as *"Directory used to store file parts larger than `maxInMemorySize`. **Ignored when using the PartEvent streaming support**"* — a setting that exists only because `@RequestPart` writes parts to disk before you see them.
 
 **The `Flux<DataBuffer>` version fails loudly, and confusingly.** There's no reactive adapter for a bare `DataBuffer`, so the decoder falls back to its single-value path and joins your "stream" into one composite buffer bounded by `spring.http.codecs.max-in-memory-size`. With the default 256KB, a 1MB upload comes back as **HTTP 413** — which nobody expects from an endpoint with no size limit configured. Raise that limit to "fix" it and you have bought yourself a full in-heap copy of every upload: the OOM, with extra steps.
 
 **And `DataBufferUtils.join()` doesn't help either.** The usual "pragmatic bridge" is:
 
 ```java
-InputStream inputStream = DataBufferUtils.join(data)
+InputStream inputStream = DataBufferUtils.join(fileParts)
     .map(buf -> buf.asInputStream(true))
     .block();
 ```

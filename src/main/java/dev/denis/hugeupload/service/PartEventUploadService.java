@@ -162,7 +162,7 @@ public class PartEventUploadService {
 
     private static String readUtf8AndRelease(DataBuffer buffer) {
         try {
-            return StandardCharsets.UTF_8.decode(buffer.asByteBuffer().duplicate()).toString();
+            return buffer.toString(StandardCharsets.UTF_8);
         } finally {
             DataBufferUtils.release(buffer);
         }

@@ -101,7 +101,7 @@ public class FileSystemStorageBackend implements StorageBackend {
 
         Flux<DataBuffer> metered = content
                 .doOnDiscard(DataBuffer.class, DataBufferUtils::release)
-                .doOnNext(buffer -> {
+                .map(buffer -> {
                     long total = written.addAndGet(buffer.readableByteCount());
                     if (total > maxBytes) {
                         // We are aborting; this buffer never reaches the writer, so releasing it is
@@ -109,13 +109,10 @@ public class FileSystemStorageBackend implements StorageBackend {
                         DataBufferUtils.release(buffer);
                         throw new UploadTooLargeException(maxBytes, total);
                     }
-                    // Hash a duplicate: digest.update() consumes the ByteBuffer's position, and the
-                    // writer downstream still needs to see the buffer's full readable range.
-                    digest.update(buffer.asByteBuffer().duplicate());
-                })
-                // Copying to the heap doubles as the fix for writing pooled direct buffers, which the
-                // file channel cannot do on every platform (see the class comment).
-                .map(FileSystemStorageBackend::toHeapBuffer);
+                    // One copy serves both jobs: it hashes the chunk and hands the writer a
+                    // heap-backed buffer, which the file channel needs on every platform.
+                    return toHeapBufferAndHash(buffer, digest);
+                });
 
         return Mono.usingWhen(
                 openChannel(tempFile),
@@ -133,7 +130,7 @@ public class FileSystemStorageBackend implements StorageBackend {
     }
 
     /**
-     * Copies one chunk onto the heap and releases the original.
+     * Copies one chunk onto the heap, hashes those same bytes, and releases the original.
      *
      * <p>Deliberately one buffer at a time. An earlier version gathered several chunks per write with
      * {@code bufferTimeout}, which reduced syscalls but broke correctness: the timeout emits
@@ -141,11 +138,16 @@ public class FileSystemStorageBackend implements StorageBackend {
      * so a timer that fired between writes produced
      * {@code OverflowException: Could not emit buffer due to lack of requests} under load. Chunk size is
      * the knob that actually matters here, and it is set on the server in {@code NettyDecoderConfig}.
+     *
+     * <p>Hashing the copied array keeps the hot path on {@code read(byte[])}, which unlike
+     * {@code asByteBuffer()} (deprecated since 6.0) and {@code toByteBuffer()} (since 6.0.5) is not
+     * deprecated, and it avoids hashing a separate view of the same bytes.
      */
-    private static DataBuffer toHeapBuffer(DataBuffer buffer) {
+    private static DataBuffer toHeapBufferAndHash(DataBuffer buffer, MessageDigest digest) {
         try {
             byte[] bytes = new byte[buffer.readableByteCount()];
             buffer.read(bytes);
+            digest.update(bytes);
             return HEAP_BUFFERS.wrap(bytes);
         } finally {
             DataBufferUtils.release(buffer);

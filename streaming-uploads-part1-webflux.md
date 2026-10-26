@@ -166,15 +166,14 @@ public Mono<StoredUpload> store(Flux<DataBuffer> content, StorageSpec spec) {
 
     Flux<DataBuffer> metered = content
             .doOnDiscard(DataBuffer.class, DataBufferUtils::release)
-            .doOnNext(buffer -> {
+            .map(buffer -> {
                 long total = written.addAndGet(buffer.readableByteCount());
                 if (total > maxBytes) {
                     DataBufferUtils.release(buffer);          // we are aborting: this one is ours to free
                     throw new UploadTooLargeException(maxBytes, total);
                 }
-                digest.update(buffer.asByteBuffer().duplicate());
-            })
-            .map(FileSystemStorageBackend::toHeapBuffer);
+                return toHeapBufferAndHash(buffer, digest);   // copy, hash, release — one pass
+            });
 
     return Mono.usingWhen(
             openChannel(tempFile),
